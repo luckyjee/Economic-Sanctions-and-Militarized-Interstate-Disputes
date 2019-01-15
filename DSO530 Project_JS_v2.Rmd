@@ -1,0 +1,171 @@
+---
+title: "DSO 530 Project"
+author: "Jihyun Shin"
+date: "November 22, 2015"
+output: pdf_document
+---
+# Set-up
+```{r}
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(coefplot)
+setwd("/Users/jihyunshin/Dropbox/USC Coursework/DSO 530 Sanctions Project")
+load("merged_new_final.R")
+data<-merged_new
+rm(merged_new)
+```
+
+# Linear Regression
+```{r}
+set.seed(111)
+train <- sample(1:nrow(data), nrow(data)/2)
+test <- -train
+training_data <- data[train,]
+testing_data <- data[test,]
+testing_y <- data$hihost_4_5[test]
+
+# Simple Linear Regression
+
+model1<-lm(training_data$hihost_4_5 ~ training_data$duration_months_ties)
+summary(model1) #statistically highly significant, substantively not very strong.
+plot(y=training_data$hihost_4_5,x=training_data$duration_months_ties,col="blue",main="Simple Linear Regression")
+abline(model1,col="red")
+
+# Let's add some more variables: Multiple Linear Regression
+model2=lm(hihost_4_5~duration_months_ties  + ongoing_dum + 
+                 issue_mil_relevant_narrow+issue_mil_relevant_broad+
+                  sendercosts+targetcosts+carrots_control+carrotsduringsanction_control, 
+          data=training_data)
+summary(model2) #Adjusted R-squared:   0.1577  
+# The longer the sanction and the higher targetcost( but NOT the sendercost during the sanction), the more likely we see use of force or war between the two states.
+
+# Let's get rid of some statistically insignificant variables
+model3=lm(hihost_4_5~duration_months_ties  + ongoing_dum + sendercosts+
+                 targetcosts,data=training_data)
+summary(model3) #Adjusted R-squared:  0.1631 
+# The result from model2 remains robust. Again, the longer the duration, and the higher the targetcosts, the more likely we see either use of force or war between two states either during or after economic sanctions. Plus, model 3 is a better model than model 2 seeing that the Adjusted R-squared has slightly increased.
+
+
+# Assess the linearity of the model
+par(mfrow=c(1,2))
+plot(predict(model3),residuals(model3)) 
+plot(predict(model2),residuals(model2))
+par(mfrow=c(1,1))
+# There is a very strong and specific pattern: linear regression is a bad model for our data. 
+
+
+# Introduce Interactions
+model4=lm(hihost_4_5~duration_months_ties*targetcosts + 
+                 ongoing_dum,data=training_data)
+summary(model4)
+# The effect of target cost proves to be robust again. The higher the target cost, the more likely we see use of force or war. The interaction term between duration and target cost is also highly significant indicating that higher target costs make longer duration more likely to induce use of force/war.
+
+```
+## Discussion:From the linear regression, we can infer that the target cost is a very significant factor. However, as we have seen in the pattern between residuals and predicted values, linear regression is a bad model for our data. This is partly because our DV is a binary variable, for which logistic regression may be a better model. Let's now turn to logistic regression. 
+
+
+
+# Simple Logistic Regression 
+## DV: hihost_4_5 (War & Use of force coded as 1; No militarized action &Threat to use force & Display of force coded as 0)
+```{r}
+set.seed(1)
+train <- sample(1:nrow(data), nrow(data)/2)
+test <- -train
+training_data <- data[train,]
+testing_data <- data[test,]
+testing_y <- data$hihost_4_5[test]
+
+mod_logit <- glm(hihost_4_5 ~ duration_months_ties  + ongoing_dum + 
+                 issue_mil_relevant_narrow+issue_mil_relevant_broad+sendercosts+targetcosts+carrots_control+carrotsduringsanction_control  , 
+                 data = training_data,
+                 family = "binomial")
+summary(mod_logit)
+
+#Let's get rid of the statistically insignificant predictors.
+mod_logit2 <- glm(hihost_4_5 ~ duration_months_ties  + ongoing_dum+ sendercosts+targetcosts,
+                 data = training_data,
+                 family = "binomial")
+summary(mod_logit2)
+
+# coefficient plots without the intercept; 
+coefplot(mod_logit2, coefficients=c("ongoing_dum1","duration_months_ties","targetcosts"))
+```
+
+## Discussion: The result shows that the longer the sanction, the higher the likelihood (0.0044) of war / use of force (p<0.01). However, if the sanction is ongoing, note that there is a substantially lower likelihood (-1.8) that the sanction involved any use of force and war (p<0.05). Again, the effect of target costs remains robust.  
+
+
+```{r}
+# Let's use the testing_data and calculate the error rate. 
+mod_logit2_probs = predict(mod_logit2, testing_data, type = "response")
+head(mod_logit2_probs)
+
+logistic_pred_y = rep("0", length(testing_y))
+logistic_pred_y[mod_logit2_probs > 0.5] = "1"
+
+conf_matrix = table(testing_y, logistic_pred_y)
+conf_matrix
+error_rate = 40/ (417+2+2+38)
+error_rate
+# OR
+logit<-mean(testing_y != logistic_pred_y)
+logit
+```
+## Logistic regression with a threshold of 0.5 yields an error rate of  0.08714597
+
+
+# LDA
+```{r}
+library(MASS) # Use MASS library for LDA function
+lda_model=lda(hihost_4_5 ~ duration_months_ties  + ongoing_dum,
+                  data=training_data)
+names(lda_model)
+
+lda_predict=predict(lda_model, testing_data)
+names(lda_predict)
+
+lda_predicted_y=lda_predict$class
+head(lda_predicted_y)
+
+# confusion matrix
+table(testing_y, lda_predicted_y)
+lda<-(12+27)/(407+12+27+13) #  0.08496732
+lda
+```
+## LDA yields an error rate of 0.08496732.
+
+# QDA
+```{r}
+qda_model=qda(hihost_4_5 ~ duration_months_ties  + ongoing_dum, data=training_data)
+names(qda_model)
+
+qda_predict=predict(qda_model, testing_data)
+names(qda_predict)
+
+qda_predicted_y=qda_predict$class
+head(qda_predicted_y)
+
+# confusion matrix
+table(testing_y, qda_predicted_y)
+qda<-(10+21)/(409+10+21+19)
+qda
+```
+## QDA yields an error rate of 0.06753813.
+
+#Comparison between Logit, LDA, QDA
+```{r}
+library(pander)
+Models<-c("Logistic Regression","LDA","QDA")
+Error_Rate<-c(logit, lda, qda)
+tab_comp<-rbind(Models, Error_Rate)
+pander(tab_comp)
+```
+
+## QDA is the winner!
+
+
+
+
+
+
